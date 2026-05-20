@@ -1,10 +1,9 @@
 name: Overland Track Weather SMS
 on:
   schedule:
-    - cron: "0 19 * * *"
-    - cron: "0 0 * * *"
-    - cron: "0 5 * * *"
-    - cron: "0 10 * * *"
+    - cron: "0 18 * * *"
+    - cron: "0 6 * * *"
+    - cron: "0 12 * * *"
   workflow_dispatch:
 jobs:
   send-weather:
@@ -21,4 +20,3 @@ jobs:
           TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
           TWILIO_FROM_NUMBER: ${{ secrets.TWILIO_FROM_NUMBER }}
           TWILIO_TO_NUMBER: ${{ secrets.TWILIO_TO_NUMBER }}
-          TWILIO_TO_NUMBER_2: ${{ secrets.TWILIO_TO_NUMBER_2 }}
