@@ -1,17 +1,24 @@
-.idea
-Initial commit: Overland Track weather SMS
-1 hour ago
-src
-Add weather_sms.py to src folder
-1 hour ago
-.gitignore
-Initial commit: Overland Track weather SMS
-1 hour ago
-output.txt
-Initial commit: Overland Track weather SMS
-1 hour ago
-output.txtls
-Initial commit: Overland Track weather SMS
-1 hour ago
-requirements.txt
-Initial commit: Overland Track weather SMS
+name: Overland Track Weather SMS
+on:
+  schedule:
+    - cron: "0 19 * * *"
+    - cron: "0 0 * * *"
+    - cron: "0 5 * * *"
+    - cron: "0 10 * * *"
+  workflow_dispatch:
+jobs:
+  send-weather:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python src/weather_sms.py
+        env:
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_FROM_NUMBER: ${{ secrets.TWILIO_FROM_NUMBER }}
+          TWILIO_TO_NUMBER: ${{ secrets.TWILIO_TO_NUMBER }}
+          TWILIO_TO_NUMBER_2: ${{ secrets.TWILIO_TO_NUMBER_2 }}
