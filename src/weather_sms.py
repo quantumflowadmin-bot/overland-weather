@@ -85,12 +85,11 @@ def build_message(results):
 
 def send_sms(body):
     client = Client(os.environ["TWILIO_ACCOUNT_SID"], os.environ["TWILIO_AUTH_TOKEN"])
-    for number in [os.environ["TWILIO_TO_NUMBER"], os.environ["TWILIO_TO_NUMBER_2"]]:
-        client.messages.create(
-            body=body,
-            from_=os.environ["TWILIO_FROM_NUMBER"],
-            to=number,
-        )
+    client.messages.create(
+        body=body,
+        from_=os.environ["TWILIO_FROM_NUMBER"],
+        to=os.environ["TWILIO_TO_NUMBER"],
+    )
 
 def main():
     print("Fetching weather for Overland Track triangulation points...")
