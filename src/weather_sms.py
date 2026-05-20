@@ -6,9 +6,9 @@ from zoneinfo import ZoneInfo
 from twilio.rest import Client
 
 LOCATIONS = [
-    {"name": "Cradle Mountain", "lat": -41.68, "lon": 145.94, "note": "North - front arrival"},
-    {"name": "Mt Pelion West",  "lat": -41.83, "lon": 145.97, "note": "Mid - alpine core"},
-    {"name": "Lake St Clair",   "lat": -42.06, "lon": 146.17, "note": "South - front exit"},
+    {"name": "Cradle Mountain", "lat": -41.68, "lon": 145.94, "note": "N"},
+    {"name": "Mt Pelion West",  "lat": -41.83, "lon": 145.97, "note": "Mid"},
+    {"name": "Lake St Clair",   "lat": -42.06, "lon": 146.17, "note": "S"},
 ]
 
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
@@ -19,15 +19,20 @@ CURRENT_FIELDS = [
     "wind_speed_10m", "wind_gusts_10m", "wind_direction_10m", "visibility",
 ]
 
+HOURLY_FIELDS = [
+    "temperature_2m", "precipitation_probability", "precipitation",
+    "snowfall", "weather_code", "wind_speed_10m", "wind_gusts_10m",
+]
+
 WMO_CODES = {
-    0: "Clear sky", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+    0: "Clear", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
     45: "Fog", 48: "Icy fog",
-    51: "Light drizzle", 53: "Drizzle", 55: "Heavy drizzle",
-    61: "Light rain", 63: "Rain", 65: "Heavy rain",
-    71: "Light snow", 73: "Snow", 75: "Heavy snow", 77: "Snow grains",
-    80: "Light showers", 81: "Showers", 82: "Heavy showers",
-    85: "Snow showers", 86: "Heavy snow showers",
-    95: "Thunderstorm", 96: "Thunderstorm w/ hail", 99: "Thunderstorm w/ heavy hail",
+    51: "Lt drizzle", 53: "Drizzle", 55: "Hvy drizzle",
+    61: "Lt rain", 63: "Rain", 65: "Hvy rain",
+    71: "Lt snow", 73: "Snow", 75: "Hvy snow", 77: "Snow grains",
+    80: "Lt showers", 81: "Showers", 82: "Hvy showers",
+    85: "Snow showers", 86: "Hvy snow showers",
+    95: "Thunderstorm", 96: "Storm+hail", 99: "Storm+hvy hail",
 }
 
 WIND_DIRECTIONS = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"]
@@ -49,39 +54,74 @@ def fetch_weather(lat, lon):
     params = {
         "latitude": lat, "longitude": lon,
         "current": ",".join(CURRENT_FIELDS),
+        "hourly": ",".join(HOURLY_FIELDS),
+        "forecast_days": 2,
         "timezone": "Australia/Hobart",
     }
     resp = requests.get(OPEN_METEO_URL, params=params, timeout=10)
     resp.raise_for_status()
-    c = resp.json()["current"]
+    return resp.json()
+
+def parse_current(data):
+    c = data["current"]
     return {
-        "temperature": c["temperature_2m"], "feels_like": c["apparent_temperature"],
-        "humidity": c["relative_humidity_2m"], "precipitation": c["precipitation"],
-        "snowfall": c["snowfall"], "weather_code": c["weather_code"],
-        "wind_speed": c["wind_speed_10m"], "wind_gusts": c["wind_gusts_10m"],
+        "temperature": c["temperature_2m"],
+        "feels_like": c["apparent_temperature"],
+        "humidity": c["relative_humidity_2m"],
+        "precipitation": c["precipitation"],
+        "snowfall": c["snowfall"],
+        "weather_code": c["weather_code"],
+        "wind_speed": c["wind_speed_10m"],
+        "wind_gusts": c["wind_gusts_10m"],
         "wind_direction": degrees_to_cardinal(c["wind_direction_10m"]),
         "visibility": c["visibility"],
     }
 
-def format_location_block(loc, data):
-    danger = "DANGER " if is_dangerous(data) else ""
-    return "\n".join([
-        f"{danger}{loc['name']} ({loc['note']})",
-        f"  {weather_code_to_text(data['weather_code'])}",
-        f"  Temp: {data['temperature']}C (feels {data['feels_like']}C)",
-        f"  Wind: {data['wind_speed']} km/h {data['wind_direction']}, gusts {data['wind_gusts']} km/h",
-        f"  Rain: {data['precipitation']} mm  Snow: {data['snowfall']} cm",
-        f"  Humidity: {data['humidity']}%  Vis: {data['visibility']/1000:.1f} km",
-    ])
+def parse_outlook(data, current_time):
+    times = data["hourly"]["time"]
+    codes = data["hourly"]["weather_code"]
+    temps = data["hourly"]["temperature_2m"]
+    precip_prob = data["hourly"]["precipitation_probability"]
+    precip = data["hourly"]["precipitation"]
+    snow = data["hourly"]["snowfall"]
+    gusts = data["hourly"]["wind_gusts_10m"]
 
-def build_message(results):
-    now = datetime.now(ZoneInfo("Australia/Hobart")).strftime("%a %d %b, %H:%M AEDT")
-    any_danger = any(is_dangerous(r["data"]) for r in results)
-    header = f"OVERLAND WEATHER - {now}"
-    if any_danger:
-        header += "\nDANGEROUS CONDITIONS - check before departing"
-    blocks = [format_location_block(r["loc"], r["data"]) for r in results]
-    return "\n\n".join([header] + blocks + ["Data: open-meteo.com"])
+    current_hour = current_time.strftime("%Y-%m-%dT%H:00")
+    try:
+        start = times.index(current_hour)
+    except ValueError:
+        start = 0
+
+    next_12 = list(zip(
+        times[start:start+12],
+        codes[start:start+12],
+        temps[start:start+12],
+        precip_prob[start:start+12],
+        precip[start:start+12],
+        snow[start:start+12],
+        gusts[start:start+12],
+    ))
+
+    max_gust = max(g for *_, g in next_12)
+    max_precip = max(p for _, _, _, _, p, _, _ in next_12)
+    max_snow = max(s for _, _, _, _, _, s, _ in next_12)
+    max_prob = max(pp for _, _, _, pp, _, _, _ in next_12)
+    min_temp = min(t for _, _, t, _, _, _, _ in next_12)
+    worst_code = max(c for _, c, *_ in next_12)
+
+    danger = max_gust > 80 or max_snow > 2 or worst_code in (95, 96, 99)
+
+    summary = weather_code_to_text(worst_code)
+    outlook = (
+        f"12hr: {summary}\n"
+        f"Lo:{min_temp:.0f}C Rain%:{max_prob}% "
+        f"Mx gust:{max_gust:.0f}km/h"
+    )
+    if max_snow > 0:
+        outlook += f" Snow:{max_snow:.1f}cm"
+    if danger:
+        outlook = "DANGER " + outlook
+    return outlook
 
 def send_sms(body):
     client = Client(os.environ["TWILIO_ACCOUNT_SID"], os.environ["TWILIO_AUTH_TOKEN"])
@@ -93,26 +133,32 @@ def send_sms(body):
 
 def main():
     print("Fetching weather for Overland Track triangulation points...")
-    results, errors = [], []
+    tz = ZoneInfo("Australia/Hobart")
+    now = datetime.now(tz)
+    now_str = now.strftime("%a %d %b %H:%M")
+
     for loc in LOCATIONS:
         try:
-            data = fetch_weather(loc["lat"], loc["lon"])
-            results.append({"loc": loc, "data": data})
-            print(f"  OK {loc['name']}")
+            raw = fetch_weather(loc["lat"], loc["lon"])
+            current = parse_current(raw)
+            outlook = parse_outlook(raw, now)
+
+            danger = "DANGER " if is_dangerous(current) else ""
+            msg = (
+                f"{danger}{loc['name']}({loc['note']}) {now_str}\n"
+                f"{weather_code_to_text(current['weather_code'])}\n"
+                f"Tmp:{current['temperature']}C fl:{current['feels_like']}C\n"
+                f"Wnd:{current['wind_speed']}km/h {current['wind_direction']} "
+                f"gst:{current['wind_gusts']}km/h\n"
+                f"Rain:{current['precipitation']}mm Snow:{current['snowfall']}cm\n"
+                f"Hum:{current['humidity']}% Vis:{current['visibility']/1000:.1f}km\n"
+                f"{outlook}"
+            )
+            print(f"\n{msg}\n")
+            send_sms(msg)
+            print(f"  Sent: {loc['name']}")
         except Exception as e:
-            errors.append(f"{loc['name']}: {e}")
             print(f"  FAILED {loc['name']}: {e}")
-    if not results:
-        print("All fetches failed - aborting.")
-        sys.exit(1)
-    message = build_message(results)
-    if errors:
-        message += f"\n\nFailed to fetch: {', '.join(errors)}"
-    print("\n--- Message preview ---")
-    print(message)
-    print("-----------------------\n")
-    send_sms(message)
-    print("SMS sent to all recipients.")
 
 if __name__ == "__main__":
     main()
