@@ -49,8 +49,7 @@ def is_dangerous(data):
         data["precipitation"] > 10 or data["visibility"] < 1000 or
         data["weather_code"] in (95, 96, 99)
     )
-
-def fetch_weather(lat, lon):
+def fetch_weather(lat, lon, retries=3):
     params = {
         "latitude": lat, "longitude": lon,
         "current": ",".join(CURRENT_FIELDS),
@@ -58,9 +57,16 @@ def fetch_weather(lat, lon):
         "forecast_days": 2,
         "timezone": "Australia/Hobart",
     }
-    resp = requests.get(OPEN_METEO_URL, params=params, timeout=10)
-    resp.raise_for_status()
-    return resp.json()
+    for attempt in range(retries):
+        try:
+            resp = requests.get(OPEN_METEO_URL, params=params, timeout=20)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.exceptions.Timeout:
+            print(f"  Timeout attempt {attempt+1}/{retries} for {lat},{lon}")
+            if attempt == retries - 1:
+                raise
+    raise Exception("Max retries exceeded")
 
 def parse_current(data):
     c = data["current"]
